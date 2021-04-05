@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from pointnet_util import PointNetSetAbstractionMsg, PointNetSetAbstraction
-
+import time
 
 class get_model(nn.Module):
     def __init__(self,num_class,normal_channel=True):
@@ -20,20 +20,35 @@ class get_model(nn.Module):
         self.fc3 = nn.Linear(256, num_class)
 
     def forward(self, xyz):
+        start_overall = time.time()
+
         B, _, _ = xyz.shape
+        #print("xyz.shape", xyz.shape)
         if self.normal_channel:
             norm = xyz[:, 3:, :]
             xyz = xyz[:, :3, :]
         else:
             norm = None
+        start = time.time()
         l1_xyz, l1_points = self.sa1(xyz, norm)
+        sa1 = time.time() - start
+        start = time.time()
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
+        sa2 = time.time() - start
+        start = time.time()
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
+        sa3 = time.time() - start
+        start = time.time()
         x = l3_points.view(B, 1024)
         x = self.drop1(F.relu(self.bn1(self.fc1(x))))
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
         x = F.log_softmax(x, -1)
+        fc_time = time.time() - start
+        #print("sa1",sa1, "sa2", sa2,"sa3",sa3,"fc_time",fc_time, "\n")
+        time_overall = time.time() - start_overall
+        with open("general_layers_result.txt", 'a') as f:
+          f.write(str(time_overall)+"\n"+str(sa1)+ "\n" + str(sa2)+"\n"+str(sa3)+"\n"+str(fc_time)+"\n")
 
 
         return x,l3_points

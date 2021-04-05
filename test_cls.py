@@ -11,6 +11,7 @@ import logging
 from tqdm import tqdm
 import sys
 import importlib
+import time
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -35,9 +36,9 @@ def test(model, loader, num_class=40, vote_num=1):
         points, target = data
         target = target[:, 0]
         points = points.transpose(2, 1)
-        points, target = points.cuda(), target.cuda()
+        points, target = points, target
         classifier = model.eval()
-        vote_pool = torch.zeros(target.size()[0],num_class).cuda()
+        vote_pool = torch.zeros(target.size()[0],num_class)
         for _ in range(vote_num):
             pred, _ = classifier(points)
             vote_pool += pred
@@ -89,14 +90,18 @@ def main(args):
     model_name = os.listdir(experiment_dir+'/logs')[0].split('.')[0]
     MODEL = importlib.import_module(model_name)
 
-    classifier = MODEL.get_model(num_class,normal_channel=args.normal).cuda()
+    classifier = MODEL.get_model(num_class,normal_channel=args.normal)
 
-    checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
+    checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth', map_location=torch.device('cpu'))
     classifier.load_state_dict(checkpoint['model_state_dict'])
 
     with torch.no_grad():
+        start_overall = time.time()
         instance_acc, class_acc = test(classifier.eval(), testDataLoader, vote_num=args.num_votes)
         log_string('Test Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
+        overall_time = time.time() - start_overall
+        with open("overall.txt", 'a') as f:
+          f.write(str(overall_time)+"\n")
 
 
 
