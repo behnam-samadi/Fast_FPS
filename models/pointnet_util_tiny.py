@@ -164,26 +164,6 @@ def index_points(points, idx):
     new_points = points[batch_indices, idx, :]
     return new_points
 
-  
-
-def binary_search(sorted_points, origin, margin):
-  left = min(origin, margin)
-  right = max(origin, margin)
-  expected = (float(sorted_points[left]) + float(sorted_points[right]))/2
-  center = int((left+right)/2)
-  while(left < right):
-    center = int((left+right)/2)
-    if sorted_points[center] == expected:
-      break
-    if sorted_points[center] < expected:
-      left = center+1
-    else:
-      right = center-1
-  return center
-
-
-
-
 
 def farthest_point_sample(xyz, npoint):
     """
@@ -193,104 +173,125 @@ def farthest_point_sample(xyz, npoint):
     Return:
         centroids: sampled pointcloud index, [B, npoint]
     """
-    
+
+    #to be deletd:
+    xyz = xyz[13:14,::32, :]
+    npoint = 8
+    #end to be deleted
     device = xyz.device
-    B,N,C = xyz.shape
+    B, N, C = xyz.shape
     xyz_n = xyz.cpu().numpy()
     np.save("first_batch.npy",  xyz_n)
-    xyz = torch.squeeze(xyz)
+    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
+    distance = torch.ones(B, N).to(device) * 1e10
+    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    for i in range(npoint):
+        centroids[:, i] = farthest
+        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+        dist = torch.sum((torch.abs(xyz - centroid)), -1)
+        #dist = torch.sum((xyz - centroid) ** 2, -1)
+        mask = dist < distance
+        distance[mask] = dist[mask]
+        farthest = torch.max(distance, -1)[1]
 
-    
+    centroids_n = centroids.cpu().numpy()
+    np.save("centroids_n.npy", centroids_n)
+    raise(False)
+    return centroids
+
+
+
+
+def farthest_point_sample_(xyz, npoint):
+    """
+    Input:
+        xyz: pointcloud data, [B, N, 3]
+        npoint: number of samples
+    Return:
+        centroids: sampled pointcloud index, [B, npoint]
+    """
+    FPS_start = Time.time()
+    start = Time.time()
+
+    device = xyz.device
+    B, N, C = xyz.shape
+    #print("B,N,C", B,N,C, npoint)
+    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
+    distance = torch.ones(B, N).to(device) * 1e10
+    distance = distance.int()
+    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    init = Time.time() - start
+    io1 = 0
+    io2 = 0
+    op1 = 0
+    op2 = 0
+    xyz_n = xyz.cpu().numpy()
+    np.save("first_batch.npy",  xyz_n)
     xyz = (xyz + 1)*100
     xyz = xyz.int()
     
-    Start_FPS = Time.time()
-    sum_dims = torch.sum(xyz, -1)
-    sorted_points , indices = torch.sort(sum_dims, -1)
-    sorted_points = sorted_points.tolist()
-    indices = indices.tolist()
+    
+  
+    
+ 
 
-    whole_list = []
-    for i in range(N):
-      temp = {}
-      temp["index"] = indices[i]
-      temp["value"] = sorted_points[i]
-      temp["score"] = 0
-      whole_list.append(temp)
-
-    #return torch.tensor(np.expand_dims(indices[::int(N/npoint)], axis=0))
-    initial_point = np.random.randint(1, N-2)
-    centroids = []
-    scores = np.zeros(N)
-    centroids.append(whole_list[])
-    candidates = set()
-    candidates.add(0)
-    candidates.add(N-1)
-    scores[0] = np.abs(sorted_points[initial_point]- sorted_points[0])
-    scores[-1] = np.abs(sorted_points[initial_point]- sorted_points[-1])
-    for i in range(npoint - 1):
-      selected_centroid = np.argmax(scores)
-      scores[selected_centroid] = 0
-      centroids.append(indices[selected_centroid])
-      centroids = sorted(centroids)
-      candidates.remove(selected_centroid)
-      index = np.where(centroids==selected_centroid)[0][0]
-      if not index == (len(centroids)-1):
-        candidate_right = indices[binary_search(sorted_points,selected_centroid, centroids[index+1])]
-        if candidate_right in centroids:
-          R = candidate_right
-          while R in centroids and (R<N-1):
-            R+=1
-          L = candidate_right
-          while L in centroids and (L>0):
-            L-=1
-          L_score = abs(sorted_points[centroids[index+1]] - sorted_points[L])
-          R_score = abs(sorted_points[selected_centroid] - sorted_points[R])
-          if L_score >  R_score or R==N-1:
-            candidate_right = L
-          if R_score > L_score or L==0:
-            candidate_right = R
-        candidates.add(candidate_right)
-        middle_score = sorted_points[candidate_right]
-        next_score = sorted_points[centroids[index+1]]
-        past_score = sorted_points[selected_centroid]
-        this_score = max(abs(next_score - middle_score), abs(middle_score-past_score))
-        scores[candidate_right] = this_score
-      if not index == 0:
-        candidate_left = indices[binary_search(sorted_points, selected_centroid, centroids[index-1])]
-        if candidate_left in centroids:
-          R = candidate_left
-          while (R in centroids) and (R < N-1):
-            R+=1
-          L = candidate_left
-          while (L in centroids) and (L>0):
-            L-=1
-          L_score = abs(sorted_points[selected_centroid] - sorted_points[L])
-          R_score = abs(sorted_points[centroids[index-1]] - sorted_points[R])
-          if L_score >  R_score or R==N-1:
-            candidate_left = L
-          if R_score > L_score or L==0:
-            candidate_left = R_score
+    for i in range(npoint):
+        start = Time.time()
+        centroids[:, i] = farthest
+        print(farthest,"$")
+        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+        io1 += Time.time() - start
+        start = Time.time()
+        #np.save("xyz.npy", xyz.cpu().numpy())
+        #print(xyz)
         
-        middle_score = sorted_points[candidate_left]
-        next_score = sorted_points[selected_centroid]
-        past_score = sorted_points[centroids[index-1]]
-        this_score = max(abs(next_score - middle_score), abs(middle_score-past_score))
-        candidates.add(candidate_left)
-        scores[candidate_left] = this_score
-    final_centroids = []
-    for item in centroids:
-      final_centroids.append(indices[item])
-    final_centroids = np.array(final_centroids)
-    centroids = np.expand_dims(centroids, axis=0)
-    FPS_Time = Time.time() - Start_FPS
-    with open("FPS_Whole.txt", 'a') as f:
-      f.write(str(FPS_Time)+"\n")
-    #centroids_n = centroids.cpu().numpy()
-    np.save("centroids_n.npy", centroids)
-    raise(False)
-    return torch.tensor(centroids)
 
+        #print("farthest", farthest.shape)
+        #print("centroid", centroid,"--------\\-----")
+        #print("batch_indices", batch_indices)
+        
+        #M.dist and E.dist
+        #E.dist:
+        dist = torch.sum((xyz - centroid) ** 2, -1)
+        #M.dist:
+        #dist = torch.sum((torch.abs(xyz - centroid)), -1)
+        #dist = dist.int()
+        #supremum distance
+        #dist = torch.max((torch.abs(xyz - centroid)), dim =-1, keepdim=False, out=None).values
+        #dist = dist.int()
+
+
+
+        #another test
+        #dist = torch.sum((xyz - centroid), -1)
+
+        #sum of attributes:
+        #dist = torch.abs(torch.sum((xyz - centroid), -1))
+        dist = dist.int()
+        mask = dist < distance
+        op1 += Time.time() - start
+        start = Time.time()
+        distance[mask] = dist[mask]
+        io2 += Time.time() - start
+        start = Time.time()
+        farthest = torch.max(distance, -1)[1]
+        op2 += Time.time() - start
+    with open("FPS_times.txt", 'a') as f:
+      f.write(str(Time.time() - start)+"\n")
+    with open("FPS_IO_ops_times.txt", 'a') as f:
+      f.write(str(io1) + "\n" + str(io2) + "\n" + str(op1) + "\n"+ str(op2)+"\n")
+    FPS_time = Time.time() - FPS_start
+    with open("FPS_whole.txt", 'a') as f:
+      f.write(str(FPS_time)+"\n")
+    #print("farthest point sample", Time.time() - start, "\n")
+    #print("centroids.shape")
+    #print(centroids.dtype)
+    #centroids_n = centroids.cpu().numpy()
+    #np.save("centroids_n.npy", centroids_n)
+    
+    return centroids
 
 
 def query_ball_point(radius, nsample, xyz, new_xyz):
@@ -307,46 +308,17 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = new_xyz.shape
-    print("-------\n\n-------\n")
-    print(xyz.shape)
-    print(new_xyz.shape)
-    
-    
-
     group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
-    print("avali:")
-    print(group_idx.shape)
-
     #print(group_idx)
     #print(group_idx.shape)
     #print("group_idx")
     #raise(False)
     sqrdists = square_distance(new_xyz, xyz)
     group_idx[sqrdists > radius ** 2] = N
-    print("inja:")
-    print(group_idx)
-    print(group_idx.shape)
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
-    print("inajst:")
-    print(group_idx)
-    print(group_idx.shape)
-    
-    print("dovomi")
-    print(group_idx.shape)
-    
-    
-    print("-------\n\n-------\n")
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    print(group_idx.shape)
-    
     mask = group_idx == N
-    print(mask)
-    print(mask.shape)
-    
-
     group_idx[mask] = group_first[mask]
-    print(group_idx)
-    raise(False)
     with open("query_ball_point.txt", 'a') as f:
       f.write(str(Time.time() - start)+"\n")
     #print("query ball point", Time.time() -  start, "\n")

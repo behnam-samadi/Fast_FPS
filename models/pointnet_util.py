@@ -164,6 +164,30 @@ def index_points(points, idx):
     new_points = points[batch_indices, idx, :]
     return new_points
 
+  
+
+def binary_search(sorted_points, origin, margin):
+
+  left = min(origin, margin)
+  right = max(origin, margin)
+  #print(left)
+  #print(right)
+  #print("---\n--------")
+  expected = (float(sorted_points[left]) + float(sorted_points[right]))/2
+  center = int((left+right)/2)
+  while(left < right):
+    center = int((left+right)/2)
+    if sorted_points[center] == expected:
+      break
+    if sorted_points[center] < expected:
+      left = center+1
+    else:
+      right = center-1
+  return center
+
+
+
+
 
 def farthest_point_sample(xyz, npoint):
     """
@@ -173,87 +197,146 @@ def farthest_point_sample(xyz, npoint):
     Return:
         centroids: sampled pointcloud index, [B, npoint]
     """
-    FPS_start = Time.time()
-    start = Time.time()
-
+    
     device = xyz.device
-    B, N, C = xyz.shape
-    #print("B,N,C", B,N,C, npoint)
-    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
-    distance = torch.ones(B, N).to(device) * 1e10
-    distance = distance.int()
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
-    batch_indices = torch.arange(B, dtype=torch.long).to(device)
-    init = Time.time() - start
-    io1 = 0
-    io2 = 0
-    op1 = 0
-    op2 = 0
+    B,N,C = xyz.shape
     xyz_n = xyz.cpu().numpy()
-    np.save("first_batch.npy",  xyz_n)
+    #np.save("first_batch.npy",  xyz_n)
+    xyz = torch.squeeze(xyz)
+
+    
     xyz = (xyz + 1)*100
     xyz = xyz.int()
     
+    Start_FPS = Time.time()
+    sum_dims = torch.sum(xyz, -1)
+    sorted_points , indices = torch.sort(sum_dims, -1)
+    sorted_points = sorted_points.tolist()
+    indices = indices.tolist()
+
+    #whole_list = []
+    #for i in range(N):
+      #temp = {}
+      #temp["index"] = indices[i]
+      #temp["value"] = sorted_points[i]
+      #temp["score"] = 0
+      #whole_list.append(temp)
+
+    #Approximate approach:
+    #return torch.tensor(np.expand_dims(indices[::int(N/npoint)], axis=0))
+    initial_point = np.random.randint(1, N-2)
+    centroids = []
+    scores = []
+    candidates = []
+    centroids.append(indices[initial_point])
+
     
-  
+    candidates.append(0)
+    scores.append(np.abs(sorted_points[initial_point]- sorted_points[0]))
+
+    candidates.append(initial_point)
+    scores.append(0)
+
+    candidates.append(N-1)
+    scores.append(np.abs(sorted_points[initial_point]- sorted_points[-1]))
+
+    print(candidates)
+    print(scores)
+    print(len(sorted_points))
     
- 
-
-    for i in range(npoint):
-        start = Time.time()
-        centroids[:, i] = farthest
-        print(farthest,"$")
-        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
-        io1 += Time.time() - start
-        start = Time.time()
-        #np.save("xyz.npy", xyz.cpu().numpy())
-        #print(xyz)
-        
-
-        #print("farthest", farthest.shape)
-        #print("centroid", centroid,"--------\\-----")
-        #print("batch_indices", batch_indices)
-        
-        #M.dist and E.dist
-        #E.dist:
-        dist = torch.sum((xyz - centroid) ** 2, -1)
-        #M.dist:
-        #dist = torch.sum((torch.abs(xyz - centroid)), -1)
-        #dist = dist.int()
-        #supremum distance
-        #dist = torch.max((torch.abs(xyz - centroid)), dim =-1, keepdim=False, out=None).values
-        #dist = dist.int()
 
 
 
-        #another test
-        #dist = torch.sum((xyz - centroid), -1)
 
-        #sum of attributes:
-        #dist = torch.abs(torch.sum((xyz - centroid), -1))
-        dist = dist.int()
-        mask = dist < distance
-        op1 += Time.time() - start
-        start = Time.time()
-        distance[mask] = dist[mask]
-        io2 += Time.time() - start
-        start = Time.time()
-        farthest = torch.max(distance, -1)[1]
-        op2 += Time.time() - start
-    with open("FPS_times.txt", 'a') as f:
-      f.write(str(Time.time() - start)+"\n")
-    with open("FPS_IO_ops_times.txt", 'a') as f:
-      f.write(str(io1) + "\n" + str(io2) + "\n" + str(op1) + "\n"+ str(op2)+"\n")
-    FPS_time = Time.time() - FPS_start
-    with open("FPS_whole.txt", 'a') as f:
-      f.write(str(FPS_time)+"\n")
-    #print("farthest point sample", Time.time() - start, "\n")
-    #print("centroids.shape")
-    #print(centroids.dtype)
-    #centroids_n = centroids.cpu().numpy()
-    #np.save("centroids_n.npy", centroids_n)
+    del sorted_points[initial_point]
+    del indices[initial_point]
+
+    for i in range(len(candidates)):
+      if candidates[i] >= initial_point:
+        candidates[i] -= 1
+
+    print(candidates)
+    print(scores)
+    print(len(sorted_points))
+    raise(False)
+
+    #print("first round:")
+    #print("socres:")
+    #print(scores)
+    #print("candidates:")
+    #print(candidates)
+    #print("centroids:")
+    #print(centroids)
     
-    return centroids
+
+    for i in range(npoint - 1):
+      selected_centroid_index = np.argmax(scores)
+      selected_centroid = candidates[selected_centroid_index]
+      centroids.append(selected_centroid)
+
+      #print("first round:")
+      #print("socres:")
+      #print(scores)
+      #print("candidates:")
+      #print(candidates)
+      #print("centroids:")
+      #print(centroids)
+      
+      
+
+      have_right_candidate = False
+      if not (selected_centroid_index == len(candidates) - 1):
+        have_right_candidate = True
+        right_candidate = binary_search(sorted_points, selected_centroid, candidates[selected_centroid_index+1])
+        #print("right_candidate:")
+        #print(right_candidate)
+
+        right_score = max(np.abs(sorted_points[selected_centroid] - sorted_points[right_candidate]),np.abs(sorted_points[right_candidate] - sorted_points[selected_centroid_index+2]))
+
+
+      have_left_candidate = False
+      if not (selected_centroid_index == 0):
+        have_left_candidate = True
+        left_candidate = binary_search(sorted_points, selected_centroid, candidates[selected_centroid_index-1])
+        #print("left_candidate:")
+        #print(left_candidate)
+        left_diff = np.abs(sorted_points[selected_centroid] - sorted_points[left_candidate])
+        right_diff = np.abs(sorted_points[left_candidate] - sorted_points[selected_centroid_index-2])
+        left_score = max(left_diff, right_diff)
+
+      if have_right_candidate:
+        candidates.insert(selected_centroid_index +1 , right_candidate)
+        scores.insert(selected_centroid_index+1, right_score)
+
+
+      if have_left_candidate:
+        candidates.insert(selected_centroid_index , left_candidate)
+        scores.insert(selected_centroid_index, left_score)
+        selected_centroid_index +=1
+
+        print("candidates", candidates)
+        print("scores", scores)
+
+
+
+      
+      scores[selected_centroid_index] = 0
+
+      
+      del indices[selected_centroid]
+      del sorted_points[selected_centroid]
+
+      for i in range(len(candidates)):
+        #print(candidates[i], "is compared to:", selected_centroid)
+        if candidates[i] >= selected_centroid:
+          #print(candidates[i], "value", "changed to") 
+          candidates[i] -= 1
+          #print(candidates[i], "value")
+    #print(centroids)  
+    #print(torch.tensor(centroids).shape)
+    raise(False)
+    return torch.tensor(centroids)
+
 
 
 def query_ball_point(radius, nsample, xyz, new_xyz):
@@ -270,17 +353,46 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = new_xyz.shape
+    #print("-------\n\n-------\n")
+    #print(xyz.shape)
+    #print(new_xyz.shape)
+    
+    
+
     group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
+    #print("avali:")
+    #print(group_idx.shape)
+
     #print(group_idx)
     #print(group_idx.shape)
     #print("group_idx")
     #raise(False)
     sqrdists = square_distance(new_xyz, xyz)
     group_idx[sqrdists > radius ** 2] = N
+    #print("inja:")
+    #print(group_idx)
+    #print(group_idx.shape)
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
+    #print("inajst:")
+    #print(group_idx)
+    #print(group_idx.shape)
+    
+    #print("dovomi")
+    #print(group_idx.shape)
+    
+    
+    #print("-------\n\n-------\n")
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
+    #print(group_idx.shape)
+    
     mask = group_idx == N
+    #print(mask)
+    #print(mask.shape)
+    
+
     group_idx[mask] = group_first[mask]
+    #print(group_idx)
+    #raise(False)
     with open("query_ball_point.txt", 'a') as f:
       f.write(str(Time.time() - start)+"\n")
     #print("query ball point", Time.time() -  start, "\n")
